@@ -340,7 +340,7 @@ function renderGroup(group, container) {
         const len = segmentLengthMi(coords).toFixed(1);
         return `<div class="reach-row" data-id="${p.osm_id}" onclick="selectReach('${p.osm_id}')">
           <span class="dot" style="background:${c}"></span>
-          <span style="flex:1;color:#aaa">${s.replace('_',' ')}</span>
+          <span class="reach-status" style="flex:1;color:#aaa">${s.replace(/_/g,' ')}</span>
           <span class="reach-len">${len} mi</span>
         </div>`;
       }).join('')}
@@ -471,12 +471,27 @@ function setStatus(status) {
   toUpdate.forEach(f => {
     f.properties.paddling_status = status;
     overrides[String(f.properties.osm_id)] = status;
+    // Update this reach row in-place (no sidebar rebuild)
+    const row = document.querySelector(`.reach-row[data-id="${f.properties.osm_id}"]`);
+    if (row) {
+      row.querySelector('.dot').style.background = STATUS_COLOR[status] || '#555';
+      row.querySelector('.reach-status').textContent = status.replace(/_/g, ' ');
+    }
   });
+
+  // Update the group header dot to reflect new dominant status
+  if (targetName) {
+    const groupEl = document.querySelector(`.ww-group[data-name="${targetName.toLowerCase()}"]`);
+    if (groupEl) {
+      const dom = dominantStatus(waterwayData.features.filter(f => f.properties.name === targetName));
+      groupEl.querySelector('.ww-group-header .dot').style.background = STATUS_COLOR[dom] || '#555';
+      groupEl.dataset.status = dom;
+    }
+  }
 
   map.getSource('waterways').setData(waterwayData);
   localStorage.setItem('ynp_rankings', JSON.stringify(overrides));
   document.querySelectorAll('.rank-btn').forEach(b => b.classList.toggle('active', b.dataset.s === status));
-  buildSidebar(); // refresh dots in sidebar
 }
 
 function exportRankings() {
