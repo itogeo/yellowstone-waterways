@@ -132,7 +132,7 @@
   <div id="sidebar">
     <div id="sb-header">
       <h3>Waterways</h3>
-      <input id="search" type="text" placeholder="Search rivers &amp; creeks…" oninput="filterList(this.value)" />
+      <input id="search" type="text" placeholder="Search rivers &amp; creeks…" oninput="filterList()" />
     </div>
     <div id="status-bar">
       <span class="sb-pill active" data-filter="all" onclick="setFilter('all')">All</span>
@@ -385,11 +385,11 @@ function setHighlight(name) {
     map.setPaintProperty('waterways', 'line-width', ['match',['get','waterway'],'river',2.5,1.3]);
   } else {
     map.setPaintProperty('waterways', 'line-opacity',
-      ['case', ['==', ['get','name'], name], 1.0, 0.18]);
+      ['case', ['==', ['get','name'], name], 1.0, 0.38]);
     map.setPaintProperty('waterways', 'line-width',
       ['case', ['==', ['get','name'], name],
         ['match', ['get','waterway'], 'river', 4.0, 2.5],
-        ['match', ['get','waterway'], 'river', 1.0, 0.6]]);
+        ['match', ['get','waterway'], 'river', 1.5, 1.0]]);
   }
 }
 
@@ -419,26 +419,22 @@ function highlightSidebarRow(id) {
   }
 }
 
-function filterList(query) {
-  const q = query.toLowerCase();
-  document.querySelectorAll('.ww-group').forEach(g => {
-    const nameMatch = g.dataset.name.includes(q);
-    g.style.display = nameMatch ? '' : 'none';
-  });
-  applyStatusFilter();
+function filterList() {
+  applyFilters();
 }
 
 function setFilter(status) {
   activeFilter = status;
   document.querySelectorAll('.sb-pill').forEach(p => p.classList.toggle('active', p.dataset.filter === status));
-  applyStatusFilter();
+  applyFilters();
 }
 
-function applyStatusFilter() {
+function applyFilters() {
+  const q = document.getElementById('search').value.toLowerCase();
   document.querySelectorAll('.ww-group').forEach(g => {
-    if (g.style.display === 'none') return;
-    if (activeFilter === 'all') { g.style.display = ''; return; }
-    g.style.display = g.dataset.status === activeFilter ? '' : 'none';
+    const nameMatch = !q || g.dataset.name.includes(q);
+    const statusMatch = activeFilter === 'all' || g.dataset.status === activeFilter;
+    g.style.display = (nameMatch && statusMatch) ? '' : 'none';
   });
 }
 
