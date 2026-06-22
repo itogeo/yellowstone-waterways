@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Greater Yellowstone Paddling Inventory</title>
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <link href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0d0d0d; color: #ddd; }
+
+    /* ── Layout ─────────────────────────────── */
+    #app { display: flex; height: 100vh; }
+    #sidebar { width: 300px; min-width: 300px; display: flex; flex-direction: column; background: #111; border-right: 1px solid #222; overflow: hidden; }
+    #map-wrap { flex: 1; position: relative; }
+    #map { position: absolute; inset: 0; }
+
+    /* ── Sidebar header ──────────────────────── */
+    #sb-header { padding: 12px 12px 8px; border-bottom: 1px solid #222; }
+    #sb-header h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: #aaa; margin-bottom: 8px; }
+    #search { width: 100%; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 5px; padding: 6px 10px; color: #ddd; font-size: 12px; outline: none; }
+    #search::placeholder { color: #555; }
+
+    /* ── Status summary bar ──────────────────── */
+    #status-bar { display: flex; padding: 8px 12px; gap: 6px; border-bottom: 1px solid #222; font-size: 11px; flex-wrap: wrap; }
+    .sb-pill { border-radius: 3px; padding: 2px 7px; cursor: pointer; opacity: .75; transition: opacity .1s; }
+    .sb-pill:hover, .sb-pill.active { opacity: 1; }
+    .sb-pill[data-filter="open"]       { background: rgba(46,204,64,.15); color: #2ecc40; border: 1px solid #2ecc40; }
+    .sb-pill[data-filter="priority_1"] { background: rgba(74,144,217,.15); color: #4a90d9; border: 1px solid #4a90d9; }
+    .sb-pill[data-filter="priority_2"] { background: rgba(126,200,227,.15); color: #7ec8e3; border: 1px solid #7ec8e3; }
+    .sb-pill[data-filter="priority_3"] { background: rgba(245,197,24,.15); color: #f5c518; border: 1px solid #f5c518; }
+    .sb-pill[data-filter="all"]        { background: rgba(255,255,255,.06); color: #aaa; border: 1px solid #333; }
+
+    /* ── Waterway list ───────────────────────── */
+    #ww-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+    #ww-list::-webkit-scrollbar { width: 4px; }
+    #ww-list::-webkit-scrollbar-track { background: #111; }
+    #ww-list::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+
+    .ww-group { border-bottom: 1px solid #1a1a1a; }
+    .ww-group-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 12px; cursor: pointer;
+      transition: background .1s;
+    }
+    .ww-group-header:hover { background: #1a1a1a; }
+    .ww-group-header.selected { background: #1e2630; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .ww-group-name { flex: 1; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ww-group-name.unnamed { color: #555; font-style: italic; }
+    .ww-count { font-size: 10.5px; color: #555; flex-shrink: 0; }
+    .ww-type-badge { font-size: 10px; color: #444; flex-shrink: 0; text-transform: uppercase; letter-spacing: .3px; }
+
+    .ww-reaches { display: none; background: #0d0d0d; }
+    .ww-group.open .ww-reaches { display: block; }
+    .reach-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 12px 5px 28px; cursor: pointer;
+      transition: background .1s; font-size: 11.5px;
+    }
+    .reach-row:hover { background: #1a1a1a; }
+    .reach-row.selected { background: #1e2630; }
+    .reach-id { color: #555; font-size: 10.5px; flex-shrink: 0; }
+    .reach-len { color: #444; font-size: 10.5px; flex-shrink: 0; }
+
+    /* ── Edit panel (map overlay) ────────────── */
+    #panel {
+      display: none;
+      position: absolute; top: 12px; right: 12px;
+      width: 240px;
+      background: rgba(10,10,10,.9);
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 14px 14px 12px;
+      font-size: 12.5px;
+      backdrop-filter: blur(6px);
+      z-index: 10;
+    }
+    #panel h4 { font-size: 14px; color: #fff; margin-bottom: 3px; padding-right: 20px; }
+    #panel .meta { color: #666; font-size: 11px; margin-bottom: 10px; }
+    #close-btn { position: absolute; top: 10px; right: 12px; background: none; border: none; color: #666; cursor: pointer; font-size: 18px; }
+    .rank-btn {
+      display: block; width: 100%; margin: 3px 0;
+      padding: 7px 10px; border-radius: 4px;
+      border: 1px solid #2a2a2a; background: transparent;
+      color: #bbb; cursor: pointer; text-align: left;
+      font-size: 12px; transition: all .1s;
+    }
+    .rank-btn:hover { background: rgba(255,255,255,.05); }
+    .rank-btn.active { border-color: var(--c); color: var(--c); font-weight: 600; }
+    .rank-btn[data-s="open"]       { --c:#2ecc40; }
+    .rank-btn[data-s="priority_1"] { --c:#4a90d9; }
+    .rank-btn[data-s="priority_2"] { --c:#7ec8e3; }
+    .rank-btn[data-s="priority_3"] { --c:#f5c518; }
+    .rank-btn[data-s="unranked"]   { --c:#666; }
+
+    .apply-all { display: flex; align-items: center; gap: 6px; margin: 8px 0 2px; font-size: 11px; color: #666; cursor: pointer; }
+    .apply-all input { cursor: pointer; }
+
+    /* ── Legend ──────────────────────────────── */
+    #legend {
+      position: absolute; bottom: 28px; right: 12px;
+      background: rgba(10,10,10,.82); border: 1px solid #222;
+      padding: 10px 14px; border-radius: 7px;
+      font-size: 11.5px; line-height: 1.9;
+      backdrop-filter: blur(4px); z-index: 5;
+    }
+    #legend h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: #666; margin-bottom: 4px; }
+    .sw { display: inline-block; width: 22px; height: 3px; border-radius: 2px; margin-right: 7px; vertical-align: middle; }
+
+    /* ── Export ──────────────────────────────── */
+    #export-btn {
+      position: absolute; top: 12px; left: 52px;
+      background: rgba(10,10,10,.8); color: #aaa;
+      border: 1px solid #333; border-radius: 5px;
+      padding: 6px 11px; font-size: 11.5px; cursor: pointer; z-index: 10;
+    }
+    #export-btn:hover { background: rgba(255,255,255,.07); }
+
+    #loading {
+      position: absolute; inset: 0; display: flex;
+      align-items: center; justify-content: center;
+      background: #0d0d0d; color: #666; font-size: 13px; z-index: 20;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Sidebar ─────────────────────────────── -->
+  <div id="sidebar">
+    <div id="sb-header">
+      <h3>Waterways</h3>
+      <input id="search" type="text" placeholder="Search rivers &amp; creeks…" oninput="filterList(this.value)" />
+    </div>
+    <div id="status-bar">
+      <span class="sb-pill active" data-filter="all" onclick="setFilter('all')">All</span>
+      <span class="sb-pill" data-filter="open"       onclick="setFilter('open')">Open</span>
+      <span class="sb-pill" data-filter="priority_1" onclick="setFilter('priority_1')">P1</span>
+      <span class="sb-pill" data-filter="priority_2" onclick="setFilter('priority_2')">P2</span>
+      <span class="sb-pill" data-filter="priority_3" onclick="setFilter('priority_3')">P3</span>
+    </div>
+    <div id="ww-list"></div>
+  </div>
+
+  <!-- ── Map ──────────────────────────────────── -->
+  <div id="map-wrap">
+    <div id="loading">Loading data…</div>
+    <div id="map"></div>
+
+    <!-- Edit panel -->
+    <div id="panel">
+      <button id="close-btn" onclick="closePanel()">×</button>
+      <h4 id="pp-name">—</h4>
+      <div class="meta" id="pp-meta">—</div>
+      <button class="rank-btn" data-s="open"       onclick="setStatus('open')">● Open to paddling</button>
+      <button class="rank-btn" data-s="priority_1" onclick="setStatus('priority_1')">● Priority 1 — few issues</button>
+      <button class="rank-btn" data-s="priority_2" onclick="setStatus('priority_2')">● Priority 2 — some issues</button>
+      <button class="rank-btn" data-s="priority_3" onclick="setStatus('priority_3')">● Priority 3 — keep closed</button>
+      <button class="rank-btn" data-s="unranked"   onclick="setStatus('unranked')">● Unranked</button>
+      <label class="apply-all">
+        <input type="checkbox" id="apply-all-cb" checked />
+        Apply to all reaches of this waterway
+      </label>
+    </div>
+
+    <!-- Legend -->
+    <div id="legend">
+      <h3>Legend</h3>
+      <div><span class="sw" style="background:#FF8C00"></span>Park boundary</div>
+      <div><span class="sw" style="background:#2ecc40"></span>Open to paddling</div>
+      <div><span class="sw" style="background:#4a90d9"></span>Priority 1 — few issues</div>
+      <div><span class="sw" style="background:#7ec8e3"></span>Priority 2 — some issues</div>
+      <div><span class="sw" style="background:#f5c518"></span>Priority 3 — keep closed</div>
+      <div><span class="sw" style="background:#e74c3c"></span>Hiking trails</div>
+      <div><span class="sw" style="background:#d4a96a"></span>Roads</div>
+    </div>
+
+    <button id="export-btn" onclick="exportRankings()">⬇ Export</button>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────
+const overrides = JSON.parse(localStorage.getItem('ynp_rankings') || '{}');
+let waterwayData = null, selectedId = null, activeFilter = 'all', highlightedName = null;
+
+const STATUS_COLOR = {
+  open:       '#2ecc40',
+  priority_1: '#4a90d9',
+  priority_2: '#7ec8e3',
+  priority_3: '#f5c518',
+  unranked:   '#555',
+};
+
+// ── Map ───────────────────────────────────────
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      satellite: {
+        type: 'raster',
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256, maxzoom: 19,
+        attribution: '© Esri, Maxar',
+      }
+    },
+    layers: [{ id: 'bg', type: 'raster', source: 'satellite' }]
+  },
+  center: [-110.55, 44.35],
+  zoom: 8,
+});
+
+map.addControl(new maplibregl.NavigationControl(), 'top-left');
+map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left');
+
+map.on('load', async () => {
+  const [boundaries, waterways, trails, roads] = await Promise.all([
+    fetch('data/boundaries.geojson').then(r => r.json()),
+    fetch('data/waterways_classified.geojson').then(r => r.json()),
+    fetch('data/trails.geojson').then(r => r.json()),
+    fetch('data/roads.geojson').then(r => r.json()),
+  ]);
+
+  waterwayData = waterways;
+  waterwayData.features.forEach(f => {
+    const id = String(f.properties.osm_id);
+    if (overrides[id]) f.properties.paddling_status = overrides[id];
+  });
+
+  // Trails
+  map.addSource('trails', { type: 'geojson', data: trails });
+  map.addLayer({ id: 'trails', type: 'line', source: 'trails',
+    paint: { 'line-color': '#e74c3c', 'line-width': 0.7, 'line-opacity': 0.45 } });
+
+  // Roads
+  map.addSource('roads', { type: 'geojson', data: roads });
+  map.addLayer({ id: 'roads', type: 'line', source: 'roads',
+    paint: { 'line-color': '#d4a96a', 'line-width': ['match',['get','highway'],'primary',2,'trunk',2.5,1.2], 'line-opacity': 0.8 } });
+
+  // Waterways
+  map.addSource('waterways', { type: 'geojson', data: waterwayData, promoteId: 'osm_id' });
+  map.addLayer({ id: 'waterways', type: 'line', source: 'waterways',
+    paint: {
+      'line-color': ['match',['get','paddling_status'],
+        'open','#2ecc40','priority_1','#4a90d9',
+        'priority_2','#7ec8e3','priority_3','#f5c518','#555'],
+      'line-width': ['match',['get','waterway'],'river',2.5,1.3],
+      'line-opacity': 0.92,
+    }});
+
+  // Park boundaries on top
+  map.addSource('boundaries', { type: 'geojson', data: boundaries });
+  map.addLayer({ id: 'boundaries', type: 'line', source: 'boundaries',
+    paint: { 'line-color': '#FF8C00', 'line-width': 2.2, 'line-opacity': 0.95 } });
+
+  // Click waterway on map
+  map.on('click', 'waterways', e => {
+    const props = e.features[0].properties;
+    selectedId = String(props.osm_id);
+    openPanel(props);
+    highlightSidebarRow(selectedId);
+    setHighlight(props.name || null);
+  });
+  // Click empty area → clear highlight
+  map.on('click', e => {
+    const hits = map.queryRenderedFeatures(e.point, { layers: ['waterways'] });
+    if (!hits.length) { setHighlight(null); closePanel(); }
+  });
+  map.on('mouseenter', 'waterways', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('mouseleave', 'waterways', () => map.getCanvas().style.cursor = '');
+
+  document.getElementById('loading').style.display = 'none';
+  buildSidebar();
+});
+
+// ── Sidebar ───────────────────────────────────
+function groupWaterways() {
+  const groups = {};
+  (waterwayData?.features || []).forEach(f => {
+    const p = f.properties;
+    const name = p.name || '';
+    const type = p.waterway || 'other';
+    const key = name || `__unnamed_${type}`;
+    if (!groups[key]) groups[key] = { name, type, features: [] };
+    groups[key].features.push(f);
+  });
+  return groups;
+}
+
+function dominantStatus(features) {
+  const counts = {};
+  features.forEach(f => {
+    const s = f.properties.paddling_status || 'unranked';
+    counts[s] = (counts[s] || 0) + 1;
+  });
+  return Object.entries(counts).sort((a,b) => b[1]-a[1])[0]?.[0] || 'unranked';
+}
+
+function buildSidebar() {
+  const groups = groupWaterways();
+  const order = ['river','stream','other'];
+  const sorted = Object.values(groups).sort((a, b) => {
+    const ti = order.indexOf(a.type), tj = order.indexOf(b.type);
+    if (ti !== tj) return ti - tj;
+    return (a.name || 'zzz').localeCompare(b.name || 'zzz');
+  });
+
+  const list = document.getElementById('ww-list');
+  list.innerHTML = '';
+  sorted.forEach(group => renderGroup(group, list));
+}
+
+function renderGroup(group, container) {
+  const dom = group.status || dominantStatus(group.features);
+  const color = STATUS_COLOR[dom] || '#555';
+  const isNamed = !!group.name;
+
+  const div = document.createElement('div');
+  div.className = 'ww-group';
+  div.dataset.name = group.name.toLowerCase();
+  div.dataset.type = group.type;
+  div.dataset.status = dom;
+
+  div.innerHTML = `
+    <div class="ww-group-header">
+      <span class="dot" style="background:${color}"></span>
+      <span class="ww-group-name${isNamed ? '' : ' unnamed'}">${group.name || '(unnamed ' + group.type + ')'}</span>
+      <span class="ww-type-badge">${group.type}</span>
+      <span class="ww-count">${group.features.length}</span>
+    </div>
+    <div class="ww-reaches">
+      ${group.features.map(f => {
+        const p = f.properties;
+        const s = p.paddling_status || 'unranked';
+        const c = STATUS_COLOR[s] || '#555';
+        const coords = f.geometry.coordinates;
+        const len = segmentLengthMi(coords).toFixed(1);
+        return `<div class="reach-row" data-id="${p.osm_id}" onclick="selectReach('${p.osm_id}')">
+          <span class="dot" style="background:${c}"></span>
+          <span style="flex:1;color:#aaa">${s.replace('_',' ')}</span>
+          <span class="reach-len">${len} mi</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  div.querySelector('.ww-group-header').addEventListener('click', () => {
+    div.classList.toggle('open');
+    flyToGroup(group.features);
+    setHighlight(group.name || null);
+  });
+
+  container.appendChild(div);
+}
+
+function segmentLengthMi(coords) {
+  let d = 0;
+  for (let i = 1; i < coords.length; i++) {
+    const dx = (coords[i][0]-coords[i-1][0]) * Math.cos((coords[i][1]+coords[i-1][1])*Math.PI/360) * 69.11;
+    const dy = (coords[i][1]-coords[i-1][1]) * 69.11;
+    d += Math.sqrt(dx*dx + dy*dy);
+  }
+  return d;
+}
+
+function flyToGroup(features) {
+  let minLon=Infinity, maxLon=-Infinity, minLat=Infinity, maxLat=-Infinity;
+  features.forEach(f => {
+    f.geometry.coordinates.forEach(([lon, lat]) => {
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    });
+  });
+  if (isFinite(minLon)) map.fitBounds([[minLon,minLat],[maxLon,maxLat]], { padding: 80, maxZoom: 14 });
+}
+
+function setHighlight(name) {
+  highlightedName = name;
+  if (!name) {
+    map.setPaintProperty('waterways', 'line-opacity', 0.92);
+    map.setPaintProperty('waterways', 'line-width', ['match',['get','waterway'],'river',2.5,1.3]);
+  } else {
+    map.setPaintProperty('waterways', 'line-opacity',
+      ['case', ['==', ['get','name'], name], 1.0, 0.18]);
+    map.setPaintProperty('waterways', 'line-width',
+      ['case', ['==', ['get','name'], name],
+        ['match', ['get','waterway'], 'river', 4.0, 2.5],
+        ['match', ['get','waterway'], 'river', 1.0, 0.6]]);
+  }
+}
+
+function selectReach(osmId) {
+  selectedId = String(osmId);
+  const feat = waterwayData.features.find(f => String(f.properties.osm_id) === selectedId);
+  if (!feat) return;
+  const coords = feat.geometry.coordinates;
+  const lons = coords.map(c => c[0]), lats = coords.map(c => c[1]);
+  map.fitBounds([[Math.min(...lons),Math.min(...lats)],[Math.max(...lons),Math.max(...lats)]], { padding: 120, maxZoom: 14 });
+  openPanel(feat.properties);
+  highlightSidebarRow(selectedId);
+  setHighlight(feat.properties.name || null);
+}
+
+function highlightSidebarRow(id) {
+  document.querySelectorAll('.reach-row').forEach(r => r.classList.remove('selected'));
+  document.querySelectorAll('.ww-group-header').forEach(r => r.classList.remove('selected'));
+  const row = document.querySelector(`.reach-row[data-id="${id}"]`);
+  if (row) {
+    row.classList.add('selected');
+    const group = row.closest('.ww-group');
+    group.classList.add('open');
+    group.querySelector('.ww-group-header').classList.add('selected');
+    // Wait one tick for the group to expand before scrolling
+    setTimeout(() => row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 0);
+  }
+}
+
+function filterList(query) {
+  const q = query.toLowerCase();
+  document.querySelectorAll('.ww-group').forEach(g => {
+    const nameMatch = g.dataset.name.includes(q);
+    g.style.display = nameMatch ? '' : 'none';
+  });
+  applyStatusFilter();
+}
+
+function setFilter(status) {
+  activeFilter = status;
+  document.querySelectorAll('.sb-pill').forEach(p => p.classList.toggle('active', p.dataset.filter === status));
+  applyStatusFilter();
+}
+
+function applyStatusFilter() {
+  document.querySelectorAll('.ww-group').forEach(g => {
+    if (g.style.display === 'none') return;
+    if (activeFilter === 'all') { g.style.display = ''; return; }
+    g.style.display = g.dataset.status === activeFilter ? '' : 'none';
+  });
+}
+
+// ── Edit panel ────────────────────────────────
+function openPanel(props) {
+  document.getElementById('pp-name').textContent = props.name || '(unnamed)';
+  document.getElementById('pp-meta').textContent =
+    [props.waterway, `OSM ${props.osm_id}`].filter(Boolean).join('  ·  ');
+  const cur = props.paddling_status || 'unranked';
+  document.querySelectorAll('.rank-btn').forEach(b => b.classList.toggle('active', b.dataset.s === cur));
+  document.getElementById('panel').style.display = 'block';
+}
+
+function closePanel() {
+  document.getElementById('panel').style.display = 'none';
+  selectedId = null;
+}
+
+function setStatus(status) {
+  if (!selectedId) return;
+  const applyAll = document.getElementById('apply-all-cb').checked;
+  const feat = waterwayData.features.find(f => String(f.properties.osm_id) === selectedId);
+  if (!feat) return;
+  const targetName = feat.properties.name;
+
+  const toUpdate = (applyAll && targetName)
+    ? waterwayData.features.filter(f => f.properties.name === targetName)
+    : [feat];
+
+  toUpdate.forEach(f => {
+    f.properties.paddling_status = status;
+    overrides[String(f.properties.osm_id)] = status;
+  });
+
+  map.getSource('waterways').setData(waterwayData);
+  localStorage.setItem('ynp_rankings', JSON.stringify(overrides));
+  document.querySelectorAll('.rank-btn').forEach(b => b.classList.toggle('active', b.dataset.s === status));
+  buildSidebar(); // refresh dots in sidebar
+}
+
+function exportRankings() {
+  const a = document.createElement('a');
+  a.href = 'data:application/json,' + encodeURIComponent(JSON.stringify(overrides, null, 2));
+  a.download = 'rankings.json';
+  a.click();
+}
+</script>
+</body>
+</html>
