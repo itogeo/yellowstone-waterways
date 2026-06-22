@@ -98,6 +98,17 @@
     .apply-all { display: flex; align-items: center; gap: 6px; margin: 8px 0 2px; font-size: 11px; color: #666; cursor: pointer; }
     .apply-all input { cursor: pointer; }
 
+    /* ── Info popup (trails / roads) ────────── */
+    .info-popup .maplibregl-popup-content {
+      background: rgba(10,10,10,.88); color: #ddd;
+      border: 1px solid #2a2a2a; border-radius: 6px;
+      padding: 7px 11px; font-size: 12.5px;
+      backdrop-filter: blur(4px); box-shadow: none;
+    }
+    .info-popup .maplibregl-popup-tip { display: none; }
+    .ip-type { display: block; font-size: 10px; text-transform: uppercase;
+      letter-spacing: .5px; color: #666; margin-bottom: 2px; }
+
     /* ── Legend ──────────────────────────────── */
     #legend {
       position: absolute; bottom: 28px; right: 12px;
@@ -264,13 +275,36 @@ map.on('load', async () => {
     highlightSidebarRow(selectedId);
     setHighlight(props.name || null);
   });
-  // Click empty area → clear highlight
+  // Click trail or road → name popup
+  const infoPopup = new maplibregl.Popup({ closeButton: false, className: 'info-popup', maxWidth: '220px' });
+  function showInfoPopup(e, label) {
+    infoPopup.setLngLat(e.lngLat).setHTML(`<div class="ip-content">${label}</div>`).addTo(map);
+  }
+  map.on('click', 'trails', e => {
+    const p = e.features[0].properties;
+    const name = p.name || p.route || 'Unnamed trail';
+    showInfoPopup(e, `<span class="ip-type">Trail</span>${name}`);
+    e.originalEvent.stopPropagation();
+  });
+  map.on('click', 'roads', e => {
+    const p = e.features[0].properties;
+    const name = p.name || p.ref || 'Unnamed road';
+    const type = p.highway || 'road';
+    showInfoPopup(e, `<span class="ip-type">${type}</span>${name}`);
+    e.originalEvent.stopPropagation();
+  });
+
+  // Click empty area → clear highlight + close popups
   map.on('click', e => {
-    const hits = map.queryRenderedFeatures(e.point, { layers: ['waterways'] });
-    if (!hits.length) { setHighlight(null); closePanel(); }
+    const hits = map.queryRenderedFeatures(e.point, { layers: ['waterways','trails','roads'] });
+    if (!hits.length) { setHighlight(null); closePanel(); infoPopup.remove(); }
   });
   map.on('mouseenter', 'waterways', () => map.getCanvas().style.cursor = 'pointer');
   map.on('mouseleave', 'waterways', () => map.getCanvas().style.cursor = '');
+  map.on('mouseenter', 'trails', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('mouseleave', 'trails', () => map.getCanvas().style.cursor = '');
+  map.on('mouseenter', 'roads', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('mouseleave', 'roads', () => map.getCanvas().style.cursor = '');
 
   document.getElementById('loading').style.display = 'none';
   buildSidebar();
